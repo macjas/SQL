@@ -1,0 +1,104 @@
+--#######################################################################################################
+-- 1a. IVRCall Raw to Refined
+--#######################################################################################################
+CREATE TABLE PostIVRCall1 AS
+	SELECT
+			call_id AS CallID,
+			MIN(date_time) AS DateTime,
+			MIN(CASE call_data_attribute WHEN 'ANI' THEN call_data_value ELSE NULL END) AS ANI,
+			MAX(CASE call_data_attribute WHEN 'Caller Auth Type' THEN call_data_value ELSE NULL END) CallerAuthenticationID,
+			MAX(CASE call_data_attribute WHEN 'CONN_ID' THEN call_data_value ELSE NULL END) AS ConnID,
+			MIN(CASE call_data_attribute WHEN 'CTN' THEN call_data_value ELSE NULL END) AS CTN,
+			MAX(CASE call_data_attribute WHEN 'CTNStatus' THEN call_data_value ELSE NULL END) AS CTNStatus,
+			MIN(CASE call_data_attribute WHEN 'DNIS' THEN call_data_value ELSE NULL END) AS DNIS,
+			MAX(CASE call_data_attribute WHEN 'ITN' THEN call_data_value ELSE NULL END) AS ITN,
+			MAX(CASE call_data_attribute WHEN 'Language' THEN call_data_value ELSE NULL END) AS Language,
+			MAX(CASE call_data_attribute WHEN 'Call End State' THEN call_data_value ELSE NULL END) AS CallEndStateID,
+			MAX(CASE call_data_attribute WHEN 'Self Serve Status ID' THEN call_data_value ELSE NULL END) AS SelfServeStatusID,
+			MAX(CASE call_data_attribute WHEN 'Self Serve Name ID' THEN call_data_value ELSE NULL END) AS SelfServeNameID,
+			MIN(CASE call_data_attribute WHEN 'SubscriptionEffectiveDate' THEN call_data_value ELSE NULL END) AS SubscriptionEffectiveDate,
+			MAX(CASE call_data_attribute WHEN 'Transaction Label' THEN call_data_value ELSE NULL END) AS TransactionLabelID,
+			MAX(CASE call_data_attribute WHEN 'TargetVQ' THEN call_data_value ELSE NULL END) AS TargetVQ,
+			MAX((call_data_attribute = 'Input Desc') AND (call_data_value = 'LIVE_AGENT')) as isAgentLive,
+			MAX(CASE call_data_attribute WHEN 'Call Start Time' THEN call_data_value ELSE NULL END) AS CallStartTime,
+			MAX(CASE call_data_attribute WHEN 'Call End Time' THEN call_data_value ELSE NULL END) AS CallEndTime,
+			MAX(CASE call_data_attribute WHEN 'Call Start Date' THEN call_data_value ELSE NULL END) AS CallStartDate,
+			MAX(CASE call_data_attribute WHEN 'Call End Date' THEN call_data_value ELSE NULL END) AS CallEndDate
+	FROM mcp_interaction
+		WHERE (call_data_value IS NOT NULL OR call_data_value != 'NA' )
+		AND (call_data_attribute IS NOT NULL OR call_data_attribute != 'NA' )
+		AND (call_id != NULL OR call_id != 'NA' )
+GROUP BY call_id
+ORDER BY CallID, DateTime;
+
+
+
+--#######################################################################################################
+-- 1b. IVRCall Refined to Derived
+--#######################################################################################################
+CREATE TABLE PostIVRCall2 AS
+	SELECT 
+		PostIVRCall1.*,
+		UNIX_TIMESTAMP(CallEndTime, "HH:mm:ss") - UNIX_TIMESTAMP(CallStartTime,"HH:mm:ss") AS CallDuration,
+		PostIVRCallEndState.Transfer,
+		PostIVRCallerAuthentication.CallAuthenticationType,
+		PostIVRSelfServeName.SelfServeGroup,
+		PostIVRSelfServeName.SelfServeSubGroup,
+		PostIVRSelfServeName.CallReason,
+		PostIVRSelfServeStatus.SelfServeStatus,
+		PostIVRSelfServeStatus.SelfServeSubStatus,
+		PostIVRSelfServeStatus.SelfServeSubSubStatus,
+		PostIVRSelfServeStatus.Containment,
+		PostIVRTransactionLabel.TransactionType,
+		(CASE WHEN (PostIVRCall1.callendstateid != '0') THEN CallEndResult
+			  WHEN ((PostIVRCall1.callendstateid = '0') AND (isagentlive)) THEN 'Live Agent'
+			  WHEN ((PostIVRCall1.callendstateid = '0') AND (Containment)) THEN 'Contained'
+					ELSE 'Self Serve Abandoned' END) as CallOutcome
+		FROM PostIVRCall1
+			LEFT OUTER JOIN PostIVRCallEndState ON (PostIVRCall1.CallEndStateID = PostIVRCallEndState.CallEndStateID)
+			LEFT OUTER JOIN PostIVRCallerAuthentication ON (PostIVRCall1.CallerAuthenticationID = PostIVRCallerAuthentication.CallerAuthenticationID)
+			LEFT OUTER JOIN PostIVRSelfServeName ON (PostIVRCall1.SelfServeNameID = PostIVRSelfServeName.SelfServeNameID)
+			LEFT OUTER JOIN PostIVRSelfServeStatus ON (PostIVRCall1.SelfServeStatusID = PostIVRSelfServeStatus.SelfServeStatusID)
+			LEFT OUTER JOIN PostIVRTransactionLabel ON (PostIVRCall1.TransactionLabelID = PostIVRTransactionLabel.TransactionLabelID);	
+
+--##########################################################################			
+-- 2a.CREATE TABLE TO STORE ELEMENT NODES FROM RAW CALL LOGS
+--##########################################################################	
+DROP TABLE IF EXISTS PostIVRN1;
+CREATE TABLE PostIVRN1 AS
+	SELECT call_id AS CallID,
+	       MIN(date_time) AS DateTime, 
+	       element_node AS ElementNodeID
+		FROM mcp_interaction 
+		WHERE call_id IS NOT NULL OR element_node IS NOT NULL OR element_node <> 'NA'
+	GROUP BY call_id, element_node
+	ORDER BY CallID, DateTime;
+
+	
+--##########################################################################			
+-- 2b. IVR Element Node Refined to Derived
+--##########################################################################
+CREATE TABLE PostIVRN2 AS
+	SELECT PostIVRN1.CallID,
+		   PostIVRN1.DateTime,
+		   PostIVRCall1.ANI,
+		   PostIVRCall1.CTN,
+		   PostIVRCall1.DNIS,
+		   PostIVRN1.ElementNodeID,
+		   PostIVRElementNode.ElementNodeName,
+		   PostIVRElementNode.ElementNodeType,
+		   PostIVRElementNode.ElementHierarchy
+	FROM Postivrn1
+		LEFT OUTER JOIN PostIVRCall1 ON (PostIVRN1.CallID = postIVRCall1.CallID)
+		LEFT OUTER JOIN PostIVRElementNode ON (postivrn1.ElementNodeID = PostIVRElementNode.ElementNodeID)
+	
+	
+
+
+
+
+
+
+
+
+
